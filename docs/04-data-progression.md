@@ -62,7 +62,7 @@ On level-up: `LevelUp` event, a celebration effect, and a toast listing what unl
 
 | Upgrade | Effect | Base cost | Cap |
 |---|---|---|---|
-| Speed | `vmax = 60 + 3·L` studs/s | 25 | 15 |
+| Speed | `vmax = 40 + 2.5·L` studs/s | 25 | 15 |
 | Disguise | still-in-view suspicion × `(1 − 0.04·L)` | 40 | 20 |
 | Warhead | damage `100 · 1.12^L`, blast radius `6 + 0.1·L` | 50 | 30 |
 | Fuel (level 10+) | `fuelMax = 3 + 0.5·L` seconds; only matters on PRO | 30 | 14 |

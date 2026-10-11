@@ -15,7 +15,8 @@ Math for intensity, bias and colours: [11-math.md](11-math.md) §11.
 |---|---|---|
 | `Flame` emitter | Square particles out of the nozzle; length grows with throttle and a little with speed | throttle |
 | Flame core | 3–5 pooled neon cubes right at the nozzle, jittering in size: gives the flame volume | throttle |
-| `EngineLight` | PointLight, flickers | throttle |
+| `EngineLight` | Strong warm PointLight that lights nearby surfaces; it gets much brighter as the nozzle nears a surface. Indoors this is the clearest thrust cue in the reference. | throttle, distance to surface |
+| Nozzle ring | A bright yellow ring at the nozzle exit while thrusting (a pooled neon ring or a flat ring decal) | throttle |
 | `Trail` emitter | Grey squares in world space (`LockedToPart = false`), 1–1.5 s life. Shows the arc of flight, which makes the inertia visible. | throttle, speed |
 | `Ignition` emitter | `Emit(15)` plus a light flash when the engine starts | ignition event |
 | Cut-off puff | `Emit(8)` grey squares when the engine stops | throttle falling below 0.05 |

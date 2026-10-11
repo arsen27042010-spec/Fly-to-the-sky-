@@ -27,6 +27,7 @@ Monetize a finished game, not a prototype. Candidate list for when the time come
 
 ## Systems
 
+- Flight assists for younger players (Normal servers only, if playtests show pure inertia is too hard): a gentle auto-level when no keys are pressed, or a small velocity-alignment assist. PRO stays pure ([13 §11](13-reference-physics.md)).
 - Contextual disguise bonus: a skin hides better near matching objects (vase near tables and flower pots).
 - Jet wash pushes light client-side props (`WashReactive` tag: cans, papers, leaves).
 - Daily rewards, playtime rewards, group reward, a likes goal.

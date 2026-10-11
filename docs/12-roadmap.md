@@ -19,13 +19,13 @@ Work strictly in order. A phase is done only when its acceptance criteria pass. 
 
 ## Phase 2 — Flight (the most important phase)
 
-**2a.** Fixed-step simulation, render interpolation, input (`Branch.Keybinds`, all three platforms), chase camera.
+**2a.** Fixed-step simulation, render interpolation, input (`Branch.Keybinds`: WASD/stick rotation, Space/RT thrust, all three platforms), orbit camera.
 
 **2b.** Contacts: collide-and-slide, crash, landing with the settle wobble, standing, takeoff blend.
 
 **2c.** Effects: flame, trail, ignition, jet wash, landing dust, sparks; engine, wind and jet-wash sounds.
 
-**2d.** Tuning on the flight gym with live `FlightTuning` attributes and the debug view; playtests on PC, phone and gamepad.
+**2d.** Tuning on the flight gym with live `FlightTuning` attributes and the debug view. Compare the gravity presets ([13](13-reference-physics.md#gravity)) first; playtests on PC, phone and gamepad.
 
 ✔ All target metrics in [05](05-flight.md#tuning) are met. Flying is fun with no goal at all. Fuel exists in code behind `fuelEnabled` but is off.
 

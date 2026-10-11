@@ -1,7 +1,9 @@
 # 11 — Math reference
 
 Every formula the game uses, with its variables, default values and the reason it exists.
-All numbers are starting points: they live in `ReplicatedStorage.Shared.FlightTuning` / `Config` and get tuned in play (see [05-flight.md](05-flight.md#tuning)).
+All numbers are starting points: they live in `ReplicatedStorage.Shared.FlightTuning` / `Config` and get tuned in play (see [05-flight.md](05-flight.md#tuning)). Flight defaults are calibrated against the reference video: see [13-reference-physics.md](13-reference-physics.md).
+
+**The flight model in one sentence:** the player rotates the rocket at any time with WASD, Space pushes it along its nose, and the velocity stays the velocity until thrust, gravity, drag or a surface changes it. Inertia is the core of the feel; nothing aligns the velocity with the nose.
 
 ## Notation
 
@@ -9,8 +11,9 @@ All numbers are starting points: they live in `ReplicatedStorage.Shared.FlightTu
 |---|---|
 | `p`, `v` | rocket position (studs), velocity (studs/s) |
 | `f` | unit nose direction (`Root.CFrame.LookVector`) |
-| `ω` | angular velocity of the nose (vector, rad/s) |
+| `ω` | angular velocity of the rocket (vector, rad/s) |
 | `up` | world up `(0, 1, 0)` |
+| `camFwd`, `camRight` | camera look and right vectors, flattened onto the horizontal plane and normalised |
 | `dt` | fixed simulation step, `1/60` s |
 | `a·b`, `a×b` | dot product, cross product |
 | `\|a\|`, `â` | length, unit vector (`a.Unit`) |
@@ -18,7 +21,6 @@ All numbers are starting points: they live in `ReplicatedStorage.Shared.FlightTu
 | `saturate(x)` | `clamp(x, 0, 1)` |
 | `vmax` | top speed from the Speed upgrade (§14) |
 | `vf = v·f` | forward speed (along the nose) |
-| `v⊥ = v − f·vf` | sideways velocity (across the nose) |
 
 ---
 
@@ -40,22 +42,34 @@ Physics runs at exactly 60 Hz on every device, so the rocket behaves the same at
 ```
 x ← x + (target − x) · (1 − e^(−dt/τ))
 ```
-`τ` is a time constant: after `τ` seconds, `x` has covered 63% of the distance to `target`. Used for throttle, FOV, bank and camera distance. Unlike `lerp(x, target, 0.1)`, it gives the same result at any frame rate.
+`τ` is a time constant: after `τ` seconds, `x` has covered 63% of the distance to `target`. Used for throttle, FOV and camera distance. Unlike `lerp(x, target, 0.1)`, it gives the same result at any frame rate.
 
 ---
 
-## 2. Aim
+## 2. Attitude input: WASD relative to the camera
 
-**2.1 Aim point.** Cast a ray from the camera through the crosshair, 500 studs long:
+**2.1 Input axes**
 ```
-A = hit.Position   (or cameraPos + cameraLook · 500 when nothing is hit)
+pitchIn = W − S          (−1..1; gamepad / mobile stick Y)
+turnIn  = D − A          (−1..1; stick X)
 ```
 
-**2.2 Desired nose direction**
+**2.2 Rotation axes**
 ```
-d = (A − p).Unit
+axisWS = −camRight                                 W tips the nose away from the camera (down when flying level)
+k      = f × camRight                              |k| = sin(angle between the nose and the camera's right)
+axisAD = (k + (1 − |k|) · (−up)).Unit              D moves the nose right on screen
 ```
-The camera sits above and behind the rocket. Steering toward the camera's look vector would miss the point under the crosshair, by a lot at short range. Steering toward the hit point corrects that parallax, which is what makes flying through windows feel fair.
+- W/S rotate the rocket about the camera's right axis. Upright, that leans it forward or back; flying level away from the camera, it dives or climbs; holding W keeps flipping it forward.
+- A/D move the nose left or right **on screen**, whatever the rocket's orientation: upright it leans sideways, flying level it turns, upside down or facing the camera it still goes the way the key says.
+- Edge case: when the nose points straight along the camera's right or left, `k` vanishes and A/D fall back to a turn about world up (A turns a right-pointing nose away from the camera).
+- Both axes come from the camera's yaw only, so "W" always means "away from me" whatever the camera pitch.
+
+**2.3 Target angular velocity**
+```
+ωtarget = ωmax · (pitchIn · axisWS + turnIn · axisAD)          ωmax = 12 rad/s (≈ 690°/s)
+```
+If both inputs are held, the vector is clamped to length `ωmax`.
 
 ---
 
@@ -63,16 +77,16 @@ The camera sits above and behind the rocket. Steering toward the camera's look v
 
 **3.1 Engine spool**
 ```
-throttle ← throttle + (input − throttle) · (1 − e^(−dt/τ))      τ = 0.08 s rising, 0.15 s falling
-input = 1 when held (keyboard, mouse, touch);  input = trigger^1.5 on gamepad RT
+throttle ← throttle + (input − throttle) · (1 − e^(−dt/τ))      τ = 0.05 s rising, 0.08 s falling
+input = 1 while Space is held (or the mobile thrust button);  input = trigger^1.5 on gamepad RT
 ```
-The engine reaches full power in about 0.2 s and dies a little slower. That reads as power without lag. The `^1.5` curve gives fine control near the bottom of the trigger.
+Crisp: the reference uses taps as short as 0.1 s, and each one has to register as a distinct push.
 
 **3.2 Ignition kick.** When `throttle` crosses 0.05 going up:
 ```
-v ← v + f · 8
+v ← v + f · 4
 ```
-A small instant shove so every ignition feels like a punch.
+A small instant shove so every tap feels like a punch.
 
 **3.3 Fuel (PRO servers only)**
 ```
@@ -91,110 +105,74 @@ the throttle target drops to 0 for 0.05 s. The engine coughs more as the tank em
 
 ---
 
-## 4. Nose: angular motion
+## 4. Rotation dynamics: always available, with angular inertia
 
-**4.1 Steering error**
+**4.1 Spin up and brake**
 ```
-θ = acos(clamp(f·d, −1, 1))          angle from the nose to the target direction
-k = (f × d).Unit                     axis to rotate around (skip when |f × d| < 1e−5)
+Δω = ωtarget − ω
+rate = (|ωtarget| > |ω|) ? αup : αbrake                 αup = 90 rad/s²,  αbrake = 120 rad/s²
+ω ← ω + Δω̂ · min(|Δω|, rate · dt)
 ```
+- Rotation works **in every state**: on the pad, coasting with the engine off, mid-thrust. There is no "steering authority" tied to throttle or speed.
+- Holding a key reaches full spin in about 0.13 s; a 180° flip takes about 0.38 s. A 0.05 s tap moves the nose about 10°: fine control comes for free.
+- Releasing the keys brakes to zero in about 0.1 s and **the rocket holds its attitude**. Nothing levels it out in the air and nothing points it along its flight path.
 
-**4.2 Steering authority**
+**4.2 Integrate the orientation**
 ```
-auth = 0.35 + 0.65 · throttle        (0 while standing)
-```
-With the engine on, the rocket steers with its nozzle and responds sharply. Coasting, only the fins steer, so it feels floaty. This is the single biggest source of "rocket" feel.
-
-**4.3 Spring-damper toward the target**
-```
-α = auth · ωn² · θ · k  −  2 · ζ · ωn · ω          ωn = 14 rad/s,  ζ = 0.85
-```
-A damped spring pulls the nose toward `d`. `ζ = 0.85` overshoots slightly (about 1%), so the nose settles crisply without wobbling. Damping is not scaled by `auth`: a coasting rocket turns lazily but never oscillates.
-
-**4.4 Weathervane (engine off)**
-```
-θv = angle between f and v̂,   kv = (f × v̂).Unit
-α ← α + (1 − throttle) · saturate(|v| / 20) · ωw² · θv · kv          ωw = 3 rad/s
-```
-Like a real dart, the nose follows the flight path when the engine is off. Ballistic hops turn into natural arcs.
-
-**4.5 Turn-rate cap**
-```
-ωmax = lerp(9, 4.5, saturate(|v| / vmax))   rad/s
-if |ω| > ωmax:  ω ← ω̂ · ωmax
-```
-At high speed the rocket turns more slowly. That is where the sense of mass comes from.
-
-**4.6 Integrate the orientation**
-```
-ω   ← ω + α · dt
 rot ← CFrame.fromAxisAngle(ω̂, |ω| · dt) * rot      (re-orthonormalise every step)
 f   = rot.LookVector
 ```
+
+**4.3 Standing limits** (state `Standing`, [§8](#8-landing-and-standing))
+```
+tilt = angle(f, up),  limited to ≤ 35°, pivoting on the base (§8.3)
+no input and no thrust  ⇒  spring back to upright (§8.2)
+```
+On the ground WASD aims the takeoff instead of tipping the rocket over.
 
 ---
 
 ## 5. Linear forces
 
-All accelerations are added up, then `v ← v + Σa · dt`.
+All accelerations are added up, then `v ← v + Σa · dt`. Rotation never touches `v`.
 
 **5.1 Gravity**
 ```
-a_g = (0, −g, 0)          g = 60 studs/s²
+a_g = (0, −g, 0)          g = 110 studs/s²
 ```
-The rocket uses its own gravity, not Roblox's 196.2, which would be far too heavy for hops and arcs.
+Strong enough for the snappy hops seen in the reference, still lighter than Roblox's 196.2. This is the least certain number: [13-reference-physics.md](13-reference-physics.md#gravity) explains why, and gives the presets to compare in the flight gym.
 
 **5.2 Thrust with taper**
 ```
-a_t = f · T · throttle · (1 − saturate(max(0, vf) / vmax)²)          T = 130 studs/s²
+a_t = f · T · throttle · (1 − saturate(max(0, vf) / vmax)²)          T = 360 studs/s²
 ```
-Full push from a standstill, fading to zero as the forward speed reaches `vmax`. Top speed arrives softly instead of hitting a wall. It is also capped by drag (5.3): about 0.93 · vmax in level flight.
+- Thrust-to-weight `T/g ≈ 3.3`, derived from the reference's hop rhythm.
+- A 0.13 s tap from standing lifts the rocket about 1 rocket length; hovering upright needs about 31% throttle (rapid tapping works too).
+- Full push from a standstill, fading to zero as the forward speed reaches `vmax`: top speed arrives softly.
+- Only speed **along the nose** is tapered, so turning the rocket and thrusting the other way always brakes at full power.
 
 **5.3 Air drag**
 ```
-a_d = −v · (c1 + c2 · |v|)          c1 = 0.12 /s,  c2 = 0.0035 /stud
+a_d = −v · (c1 + c2 · |v|)          c1 = 0.10 /s,  c2 = 0.002 /stud
 ```
-The linear term settles slow drifting. The quadratic term holds back high speeds: at 60 studs/s the slowdown is 20 studs/s². Drag is low on purpose, so a rocket that cuts its engine keeps its momentum and glides.
+Deliberately low: momentum carries. At 40 studs/s the slowdown is only 7 studs/s². To stop, you turn the nose against your motion and burn, exactly like the reference does when it reaches the house.
 
-**5.4 Fin lift**
-```
-u   = up − f · (up·f)                          world up, projected perpendicular to the nose
-a_l = û · min(g, L · max(0, vf)²)              L = 0.03   (skip when |u| < 1e−3)
-```
-Fins generate lift that grows with the square of speed. It fully cancels gravity at `vf = √(g/L) ≈ 45 studs/s`. Fast means flying straight; slow means sagging and falling. Pointing the nose straight up gives `u ≈ 0`: no lift, as expected.
-
-**5.5 Ground cushion.** Ray from the nozzle along `−f`, 8 studs long; it hits at distance `h` with surface normal `n`:
+**5.4 Ground cushion.** Ray from the nozzle along `−f`, 8 studs long; it hits at distance `h` with surface normal `n`:
 ```
 j   = saturate(f·n)                                  1 when the jet blasts straight into the surface
-a_c = n · T · 0.25 · throttle · (1 − h/8)² · j
+a_c = n · T · 0.15 · throttle · (1 − h/8)² · j
 ```
-A jet blowing into a nearby surface pushes the rocket away from it. Landings get softer and hovering low over a floor becomes easy, which is exactly what indoor hopping needs.
+A jet blowing into a nearby surface pushes the rocket away from it, which makes landings and low hovering easier. Small on purpose: it softens, it does not auto-hover.
 
 ---
 
-## 6. Grip: velocity follows the nose
+## 6. Speed cap
 
-**6.1 Lossless turn of the velocity**
 ```
-φ     = acos(clamp(v̂·f, −1, 1))
-rate  = (1.0 + 0.06 · |v|) · max(0, v̂·f)                 rad/s
-v     ← rotate(v, axis = (v̂ × f).Unit, angle = min(φ, rate · dt))
-```
-The velocity turns toward the nose and keeps its speed: the rocket carves. Grip grows with speed (fins bite harder) and vanishes when flying sideways or backwards (`v̂·f ≤ 0`, a stall). Skip when `|v| < 0.5` or while standing.
-
-**6.2 Slide bleed**
-```
-v⊥ = v − f · (v·f)
-v  ← v − v⊥ · (1 − e^(−k·dt))          k = 1.5 /s
-```
-Bleeds off whatever sideways slide is left, losing a little speed. 6.1 and 6.2 together set the character: more rotation means a precise, rail-like rocket; more bleed means a drifty, slidey one.
-
-**6.3 Hard speed cap**
-```
-vcap = 1.35 · vmax
+vcap = 1.5 · vmax + 20
 if |v| > vcap:  v ← v̂ · vcap
 ```
-An absolute limit, including dives and the cushion. The server validates movement against it (§15).
+An absolute limit that leaves room for dives and falls (a 30-stud fall reaches about 81 studs/s). The server validates movement against it (§15).
 
 ---
 
@@ -221,13 +199,13 @@ noseIn = −(f·n)          1 = nose pointing straight into the surface
 
 **7.4 Crash** (explosion, §13):
 ```
-noseIn > cos 35° (0.82)   and   vn > 42   and   timeSinceTakeoff > 0.15 s
+noseIn > cos 35° (0.82)   and   vn > 45   and   timeSinceTakeoff > 0.15 s
 ```
 Only a hard, nose-first hit explodes. Glancing hits slide. The first 0.15 s after takeoff are forgiven.
 
 **7.5 Landing**
 ```
-n.Y > 0.7   and   |v| < 16   and   throttle < 0.1      ⇒  state Landing (§8)
+n.Y > 0.7   and   |v| < 25   and   throttle < 0.1   and   tilt < 60°      ⇒  state Landing (§8)
 ```
 
 **7.6 Slide response**
@@ -237,7 +215,7 @@ if vn > 2:   v ← vt · (1 − μi) + n · (e · vn if vn > 8 else 0)      impa
 else:        v ← vt · e^(−μs · dt)                                    sliding contact, μs = 2 /s
 Δrest ← (Δ − Δ̂ · t);  Δrest ← Δrest − n · (Δrest·n)                 repeat the sweep with the rest, at most 3 times
 ```
-An impact costs speed once and can bounce slightly. Continuous sliding loses speed over time rather than per step, so the result does not depend on the step rate.
+An impact costs speed once and can bounce slightly. Continuous sliding loses speed over time rather than per step, so the result does not depend on the step rate. A rocket skimming the floor tilted (as in the reference) slides on its fins until the next tap.
 
 **7.7 Bonk feedback.** If `vn > 8`: `trauma += 0.5 · saturate(vn / 40)` (§10.6), plus a bonk sound.
 
@@ -247,75 +225,65 @@ An impact costs speed once and can bounce slightly. Continuous sliding loses spe
 
 **8.1 Upright target**
 ```
-flat = (f − up · (f·up)).Unit            current heading, flattened (camera look if degenerate)
+flat = (f − up · (f·up)).Unit            current heading, flattened (camera forward if degenerate)
 rotUp = CFrame.lookAt(Vector3.zero, up, flat)
 ```
 The nose points up and keeps its heading.
 
-**8.2 Settle wobble: tilt spring with low damping**
+**8.2 Settle: tilt spring**
 ```
 ψ = angle between f and up,   k = (f × up).Unit
-α = ωs² · ψ · k − 2 · ζs · ωs · ω          ωs = 14 rad/s,  ζs = 0.4
+α = ωs² · ψ · k − 2 · ζs · ωs · ω          ωs = 16 rad/s,  ζs = 0.8
 ```
-Under-damped on purpose: about 25% first overshoot, settling in roughly `4 / (ζs·ωs) ≈ 0.7 s`. The rocket rocks two or three times like a bottle set down on a table.
+The reference rights itself fast and cleanly: 25° → upright in about 0.13 s, no visible wobble. `ζs = 0.8` gives under 2% overshoot and settles in about 0.3 s. Lowering `ζs` to about 0.4 brings back a bottle-like wobble if playtests want more charm.
 
 **8.3 Pivot at the base**
 ```
 p = B + f · (Length / 2)          B = contact point under the base
 ```
-The rocket tilts around its base, not its centre, so it never slides or sinks while wobbling.
+The rocket tilts around its base, not its centre, so it never slides or sinks while settling or while WASD aims the takeoff.
 
-**8.4 Disguised.** `Standing` for 0.3 s with `|ω| < 0.5` rad/s.
+**8.4 Disguised.** `Standing` for 0.3 s with `|ω| < 0.5` rad/s and no tilt input.
 
 **8.5 Support check.** Ray straight down from the base, 0.6 studs. No hit ⇒ state `Falling`.
 
-**8.6 Takeoff blend.** For the first 0.15 s after leaving `Standing`:
+**8.6 Takeoff.** Thrust while `Standing` leaves the ground along the current (possibly WASD-tilted) nose. For the first 0.15 s:
 ```
 s  = t / 0.15
 ft = lerp(up, f, s).Unit              thrust direction used in 5.2
 ```
-Taking off while aiming at the floor lifts first, instead of ploughing into the ground.
+A takeoff tilted toward the floor lifts first, instead of ploughing into the ground.
 
 ---
 
 ## 9. Visual-only motion
 
-Applied to the rendered CFrame only; the simulation never sees it.
-
-**9.1 Bank into turns**
-```
-ωy         = ω·up                                       yaw rate
-bankTarget = clamp(−ωy · |v| · 0.005, −40°, +40°)
-bank       ← smooth(bank, bankTarget, τ = 0.12)          (1.2)
-renderRot  = rot * CFrame.Angles(0, 0, bank)             roll around the long axis
-```
-
-**9.2 Engine vibration**
+**9.1 Engine vibration** (applied to the rendered CFrame only)
 ```
 offset = 0.03 · throttle · (noise(t·40, 1), noise(t·40, 2), 0)        studs, Root local X/Y
 ```
 
 ---
 
-## 10. Camera
+## 10. Camera: free orbit, rigid follow
 
-**10.1 Player-controlled orientation**
+**10.1 Orbit (player-controlled, independent of the rocket's attitude)**
 ```
 yaw   ← yaw − Δx · sens
 pitch ← clamp(pitch − Δy · sens · (invertY ? −1 : 1), −80°, 80°)
 camRot = CFrame.Angles(0, yaw, 0) * CFrame.Angles(pitch, 0, 0)
+PC: right mouse drag (Roblox-style) or Shift to lock the mouse; gamepad: right stick; mobile: drag on the right half
 touch:  Δ' = sign(Δ) · |Δ|^1.3 · sensTouch
 ```
-Small finger moves give precision, big swipes turn fast.
 
 **10.2 Desired position**
 ```
-extra ← smooth(extra, clamp(0.03 · a_fwd, 0, 2), τ = 0.3)          a_fwd = forward acceleration (studs/s²)
-C*    = P + camRot · (0, 2.2, 8.5 + extra)                        P = rendered rocket position
+focus = P + up · 1.2 · Length            look slightly above the rocket, so it sits in the lower third of the screen
+dist  ∈ [8, 25] studs, default 12        mouse wheel / pinch zoom
+C*    = focus + camRot · (0, 0, dist)
 ```
-The camera drops back by up to 2 studs while accelerating, so acceleration is felt.
 
-**10.3 Follow: critically damped spring** (frame-rate independent form, `smoothTime = 0.08 s`)
+**10.3 Follow: near-rigid critically damped spring** (frame-rate independent form, `smoothTime = 0.04 s`)
 ```
 w      = 2 / smoothTime
 x      = w · dt
@@ -325,11 +293,11 @@ temp   = (vel + w · change) · dt
 vel    = (vel − w · temp) · e
 C      = C* + (change + temp) · e
 ```
-Tight follow with no overshoot. A little lag sells speed; too much feels like the camera is drunk.
+In the reference the rocket stays at a fixed screen spot to within about 2 px: the camera is effectively rigid. 0.04 s adds a hint of weight without visible lag.
 
 **10.4 Wall avoidance**
 ```
-spherecast(P, 0.3, C* − P)  ⇒  hit at distance t
+spherecast(focus, 0.3, C* − focus)  ⇒  hit at distance t
 allowed = t − 0.2
 dist = allowed                               if allowed < dist   (pull in instantly)
 dist ← smooth(dist, allowed, τ = 0.25)       otherwise           (ease back out)
@@ -337,9 +305,10 @@ dist ← smooth(dist, allowed, τ = 0.25)       otherwise           (ease back o
 
 **10.5 FOV**
 ```
-fov ← smooth(fov, 70 + 12 · saturate(|v| / vmax), τ = 0.2)
-on ignition: fov += 4 · e^(−t / 0.1)
+fov ← smooth(fov, 70 + 10 · saturate(|v| / vmax), τ = 0.2)
+on ignition: fov += 3 · e^(−t / 0.1)
 ```
+Not in the reference: our addition to sell speed. Keep it subtle.
 
 **10.6 Shake: trauma model**
 ```
@@ -348,7 +317,7 @@ steady  = 0.15 · throttle + 0.35 · I_wash                (I_wash from §11.2)
 s       = max(trauma, steady)²
 offset  = s · 0.25 · (noise(t·25, 1), noise(t·25, 2))      studs
 tilt    = s · 2° · noise(t·25, 3)
-impulses: landing 0.25 · saturate(vn/16),  bonk 0.5 · saturate(vn/40),  explosion 1 − dist/40
+impulses: landing 0.25 · saturate(vn/25),  bonk 0.5 · saturate(vn/40),  explosion 1 − dist/40
 ```
 Squaring makes small shakes subtle and big ones violent.
 
@@ -510,7 +479,7 @@ cost(type, L) = round(base_type · 1.35^L)          base: Speed 25, Disguise 40,
 
 | Upgrade | Effect | Cap |
 |---|---|---|
-| Speed | `vmax = 60 + 3 · L` | L 15 → 105 |
+| Speed | `vmax = 40 + 2.5 · L` | L 15 → 77.5 |
 | Disguise | still-in-view suspicion × `(1 − 0.04 · L)` | L 20 → × 0.2 |
 | Warhead | `W = 100 · 1.12^L`, `Rb = 6 + 0.1 · L` | L 30 |
 | Fuel (level 10+, matters on PRO) | `fuelMax = 3 + 0.5 · L` | L 14 → 10 s |

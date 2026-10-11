@@ -13,7 +13,7 @@ A run lasts 30–90 seconds. Failing is quick and cheap (you get spotted, you cr
 
 ## Pillars
 
-1. **Flight feel first.** Inertia, punchy thrust, carving turns, ballistic arcs, a camera that sells speed, a jet wash that reacts to every surface. If flying is not fun on its own, nothing else matters. See [05-flight.md](05-flight.md).
+1. **Flight feel first.** Pure inertia: rotate any time with WASD, push with Space, plan your stops. Snappy hops, momentum that carries, a camera that follows tightly, a jet wash that reacts to every surface. If flying is not fun on its own, nothing else matters. See [05-flight.md](05-flight.md).
 2. **Hide in plain sight.** Moving in a guard's view gets you caught in under a second. Standing still makes you a "vase". The tension of a turret looking straight at you, and not noticing, is the signature moment.
 3. **Short runs, fast progression.** Levels, upgrades and rebirths in the style of a simulator game: always something to buy next.
 4. **Stud style.** Classic Roblox look: studded surfaces, flat colours, effects made of squares and cubes.
@@ -40,7 +40,7 @@ Fuel is too hard for younger players, so it is a PRO feature. Details: [08-pro-s
 | Platforms | Mobile first, plus PC and gamepad through `Branch.Keybinds` | Main audience of this genre |
 | Rocket movement | Kinematic, simulated on the client, validated by the server | Zero input latency, no physics jitter, full anti-cheat control |
 | Replication | Custom, on top of Branch networking (`Unreliable`, batched snapshots, Hermite interpolation) | One non-humanoid entity per player; Branch covers transport. Chrono is not needed for now; replication sits behind one service/controller pair so it can be swapped. |
-| Controls | Camera aims, the rocket chases the aim point | Precise aiming plus real inertia |
+| Controls | WASD rotates the rocket relative to the camera (always available), Space is thrust, free orbit camera | Confirmed against the reference ([13](13-reference-physics.md)); inertia is the core of the feel |
 | PRO | Separate place, open from level 10 | Difficulty tier for experienced players |
 | First zone | Rocky Valley (rocky nature) | Matches the first asset pack |
 | Monetization, tutorial | After the core game is complete | See [backlog.md](backlog.md) |

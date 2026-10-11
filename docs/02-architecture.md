@@ -72,10 +72,10 @@ Workspace
 
 | Controller | Owns |
 |---|---|
-| InputController | `Branch.Keybinds` contexts `Lobby` and `Flight`; exposes aim deltas, throttle, detonate |
+| InputController | `Branch.Keybinds` contexts `Lobby` and `Flight`; exposes the rotation input (WASD / stick), throttle, detonate, camera orbit and zoom deltas |
 | RocketController | The local rocket: fixed-step simulation, collisions, state machine, sending state, applying corrections |
 | RocketReplicationController | Other players' rockets: snapshot buffer, Hermite interpolation, LOD |
-| CameraController | Hub camera, chase camera, standing orbit, kill cam |
+| CameraController | Hub camera, flight orbit camera (near-rigid follow), kill cam |
 | GuardController | Turret rotation from snapshots, vision cone visuals, alert icons and sounds |
 | EffectsController | Flame, trail, ignition, jet wash, scorch marks, explosions, dust, all pooled |
 | HudController | Cash, XP bar, suspicion meter, fuel bar (PRO), notifications, LAUNCH button |

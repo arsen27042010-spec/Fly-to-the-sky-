@@ -22,13 +22,14 @@ A stud-style Roblox game. You are a rocket that hides in plain sight: fly throug
 | 10 | [Rocket model](docs/10-rocket-model.md) | Model specification |
 | 11 | [Math](docs/11-math.md) | Every formula, with variables and purpose |
 | 12 | [Roadmap](docs/12-roadmap.md) | Phases with acceptance criteria |
+| 13 | [Reference physics](docs/13-reference-physics.md) | Frame-by-frame measurement of the reference flight; calibrates the flight defaults |
 | — | [Backlog](docs/backlog.md) | Deliberately postponed: monetization, tutorial, and more |
 
 ## Key decisions at a glance
 
 - **Framework:** Branch v2.5.2. Services and Controllers as segments, compiled networking ([reference](reference/Branch_API_Reference.md)).
 - **Mode:** PvE. Guards are bots; players see each other's rockets.
-- **Flight first:** the flight feel is the top priority. A kinematic rocket simulated on the client and validated by the server, replicated through custom code on top of Branch networking (no Chrono for now).
+- **Flight first:** the flight feel is the top priority. WASD rotates the rocket at any time, Space is thrust, and inertia does the rest. The rocket is kinematic, simulated on the client and validated by the server, and replicated through custom code on top of Branch networking (no Chrono for now).
 - **PRO servers:** a separate place, open from level 10. Fuel exists only there, along with tougher guards and higher rewards.
 - **First zone:** rocky nature (Rocky Valley), built from the first asset pack.
 - **Later:** monetization and tutorial come after the core game is done ([backlog](docs/backlog.md)).
@@ -43,4 +44,5 @@ reference/
   Branch_API_Reference.md   Branch framework API (v2.5.2)
   reference-video.mp4       the original gameplay reference
   frames.jpg                reference frames, 2 per second
+  physics-measurements.csv  per-frame thrust and position measurements (docs/13)
 ```
